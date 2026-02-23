@@ -50,13 +50,8 @@ Basic usage:
     ```
 """
 
-# Core compression classes
-from ream_moe.ream import REAMCompressor, REAMConfig
-
-__all__ = [
-    "REAMCompressor",
-    "REAMConfig",
-]
+# Version info
+__version__ = "0.1.0"
 
 # Observer - collect activation statistics
 from ream_moe.observer import (
@@ -149,6 +144,3 @@ __all__.extend([
     "verify_model_config",
     "print_verification_result",
 ])
-
-# Version info
-__version__ = "0.1.0"

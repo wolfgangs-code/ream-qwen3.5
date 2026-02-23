@@ -7,7 +7,7 @@ import torch
 from torch import Tensor
 from scipy.optimize import linear_sum_assignment
 
-from .adapters.base import MoEAdapter, CalibrationBatch, MoELayerHandle
+from .calibration import CalibrationBatch
 
 
 @dataclass
