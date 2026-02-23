@@ -43,10 +43,16 @@ from ream_moe import (
 )
 from ream_moe.calibration import build_calibration_batches, list_available_datasets
 
+# Configure logging - suppress INFO messages from all sources
 logging.basicConfig(
-    level=logging.INFO,
+    level=logging.WARNING,
     format="%(asctime)s - %(name)s - %(levelname)s - %(message)s"
 )
+
+# Suppress INFO logs from noisy libraries
+for logger_name in ["", "ream_moe", "datasets", "transformers", "torch", "urllib3"]:
+    logging.getLogger(logger_name).setLevel(logging.WARNING)
+
 logger = logging.getLogger(__name__)
 
 

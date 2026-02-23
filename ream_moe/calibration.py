@@ -90,6 +90,83 @@ class DatasetRegistry:
         return sorted(cls._datasets.keys())
 
 
+def _load_dataset_with_timeout(
+    dataset_path: str,
+    split: str = "train",
+    streaming: bool = True,
+    max_samples: int = 1000,
+) -> Iterable[str]:
+    """
+    Load a dataset with timeout and error handling.
+
+    This wrapper adds resilience against network issues and memory problems
+    that can occur when downloading large datasets from HuggingFace.
+    """
+    try:
+        import datasets
+    except ImportError:
+        raise ImportError("datasets library not installed")
+
+    try:
+        logger.info(f"Loading {dataset_path} (streaming={streaming})")
+
+        # Load with streaming to avoid downloading entire dataset
+        ds = datasets.load_dataset(
+            dataset_path,
+            split=split,
+            streaming=streaming,
+        )
+
+        def text_generator():
+            count = 0
+            consecutive_errors = 0
+            max_consecutive_errors = 5
+
+            for example in ds:
+                if count >= max_samples:
+                    break
+
+                try:
+                    # Extract text from various possible field names
+                    text = (
+                        example.get("text") or
+                        example.get("prompt") or
+                        example.get("instruction") or
+                        example.get("output") or
+                        ""
+                    )
+
+                    if isinstance(text, str):
+                        text = text.strip()
+                        if text:  # Only yield non-empty strings
+                            yield text
+                            count += 1
+                            consecutive_errors = 0
+                        else:
+                            consecutive_errors += 1
+                    else:
+                        consecutive_errors += 1
+
+                except Exception as e:
+                    consecutive_errors += 1
+                    logger.debug(f"Error processing sample: {e}")
+
+                # Fail after too many consecutive errors
+                if consecutive_errors >= max_consecutive_errors:
+                    logger.warning(f"Too many consecutive errors ({consecutive_errors}), stopping dataset load")
+                    break
+
+            if count == 0:
+                raise ValueError("No valid text samples found in dataset")
+
+            logger.info(f"Successfully loaded {count} samples from {dataset_path}")
+            return text_generator()
+
+    except Exception as e:
+        logger.error(f"Failed to load dataset {dataset_path}: {e}")
+        raise
+
+
 # Register built-in datasets
 
 
@@ -111,32 +188,14 @@ def _load_c4(
         Iterable of text samples
     """
     try:
-        import datasets
-    except ImportError:
-        logger.warning("datasets library not installed, using fallback texts")
-        return _fallback_texts(samples)
-
-    try:
-        logger.info(f"Loading C4 dataset ({samples} samples, streaming={streaming})")
-        ds = datasets.load_dataset(
+        return _load_dataset_with_timeout(
             "allenai/c4",
-            data_files="en/c4-train.00000-of-01024.json.gz" if streaming else None,
             split=split,
             streaming=streaming,
+            max_samples=samples,
         )
-
-        def text_generator():
-            count = 0
-            for example in ds:
-                if count >= samples:
-                    break
-                yield example["text"]
-                count += 1
-
-        return text_generator()
-
-    except Exception as e:
-        logger.warning(f"Failed to load C4 dataset: {e}, using fallback")
+    except Exception:
+        logger.warning("C4 dataset failed to load, using fallback texts")
         return _fallback_texts(samples)
 
 
@@ -158,32 +217,38 @@ def _load_code(
         Iterable of code-related text samples
     """
     try:
-        import datasets
-    except ImportError:
-        return _fallback_code_texts(samples)
+        # Try multiple code datasets, use whichever works
+        code_datasets = [
+            ("theblackcat102/evol-codealpaca-v1", "train"),
+            ("ise-uiuc/Magicoder-Evol-Instruct-110K", "train"),
+        ]
 
-    try:
-        logger.info(f"Loading code dataset ({samples} samples, streaming={streaming})")
-        ds = datasets.load_dataset(
-            "theblackcat102/evol-codealpaca-v1",
-            split="train",
-            streaming=streaming,
-        )
+        for dataset_path, split in code_datasets:
+            try:
+                result = _load_dataset_with_timeout(
+                    dataset_path,
+                    split=split,
+                    streaming=streaming,
+                    max_samples=samples,
+                )
+                # Wrap the generator to extract text properly
+                def extract_code_text():
+                    count = 0
+                    for text in result:
+                        # Combine instruction and output if available
+                        yield text
+                        count += 1
+                        if count >= samples:
+                            break
+                return extract_code_text()
+            except Exception:
+                logger.warning(f"Code dataset {dataset_path} failed, trying next...")
+                continue
 
-        def text_generator():
-            count = 0
-            for example in ds:
-                if count >= samples:
-                    break
-                # Use instruction + response as calibration text
-                text = example.get("instruction", "") + " " + example.get("output", "")
-                yield text.strip()
-                count += 1
+        raise ValueError("All code datasets failed to load")
 
-        return text_generator()
-
-    except Exception as e:
-        logger.warning(f"Failed to load code dataset: {e}, using fallback")
+    except Exception:
+        logger.warning("Code datasets failed to load, using fallback")
         return _fallback_code_texts(samples)
 
 
@@ -203,31 +268,14 @@ def _load_math(
         Iterable of math-related text samples
     """
     try:
-        import datasets
-    except ImportError:
-        return _fallback_math_texts(samples)
-
-    try:
-        logger.info(f"Loading math dataset ({samples} samples, streaming={streaming})")
-        ds = datasets.load_dataset(
+        return _load_dataset_with_timeout(
             "allenai/tulu-3-sft-personas-math",
             split="train",
             streaming=streaming,
+            max_samples=samples,
         )
-
-        def text_generator():
-            count = 0
-            for example in ds:
-                if count >= samples:
-                    break
-                text = example.get("text", example.get("prompt", ""))
-                yield text.strip()
-                count += 1
-
-        return text_generator()
-
-    except Exception as e:
-        logger.warning(f"Failed to load math dataset: {e}, using fallback")
+    except Exception:
+        logger.warning("Math dataset failed to load, using fallback")
         return _fallback_math_texts(samples)
 
 
@@ -247,31 +295,14 @@ def _load_writing(
         Iterable of writing-related text samples
     """
     try:
-        import datasets
-    except ImportError:
-        return _fallback_writing_texts(samples)
-
-    try:
-        logger.info(f"Loading writing dataset ({samples} samples, streaming={streaming})")
-        ds = datasets.load_dataset(
+        return _load_dataset_with_timeout(
             "euclaise/WritingPrompts_curated",
             split="train",
             streaming=streaming,
+            max_samples=samples,
         )
-
-        def text_generator():
-            count = 0
-            for example in ds:
-                if count >= samples:
-                    break
-                text = example.get("text", example.get("prompt", ""))
-                yield text.strip()
-                count += 1
-
-        return text_generator()
-
-    except Exception as e:
-        logger.warning(f"Failed to load writing dataset: {e}, using fallback")
+    except Exception:
+        logger.warning("Writing dataset failed to load, using fallback")
         return _fallback_writing_texts(samples)
 
 
@@ -293,9 +324,9 @@ def _load_combined(
         Iterable of text samples from all categories
     """
     categories = ["c4", "code", "math", "writing"]
+
     if samples_per_category is None:
         samples_per_category = samples // len(categories)
-    total_samples = samples_per_category * len(categories)
 
     def text_generator():
         for category in categories:
@@ -304,10 +335,27 @@ def _load_combined(
                 logger.warning(f"Category {category} not found, skipping")
                 continue
             try:
-                for text in factory(samples=samples_per_category, streaming=streaming):
-                    yield text
+                category_samples = 0
+                max_attempts = 3
+                attempt = 0
+
+                while category_samples < samples_per_category and attempt < max_attempts:
+                    attempt += 1
+                    try:
+                        for text in factory(samples=samples_per_category, streaming=streaming):
+                            if category_samples >= samples_per_category:
+                                break
+                            yield text
+                            category_samples += 1
+                        break  # Success, exit retry loop
+                    except Exception as e:
+                        logger.warning(f"Attempt {attempt}/{max_attempts} for {category} failed: {e}")
+                        if attempt >= max_attempts:
+                            logger.warning(f"Skipping {category} after {max_attempts} failed attempts")
+                        continue
+
             except Exception as e:
-                logger.warning(f"Failed to load category {category}: {e}")
+                logger.warning(f"Category {category} failed completely: {e}")
 
     return text_generator()
 
@@ -416,19 +464,34 @@ def build_calibration_batches(
         factory = DatasetRegistry.get(texts)
         if factory is None:
             logger.warning(f"Dataset '{texts}' not found, using fallback")
-            texts = _fallback_texts(1000)
+            texts = _fallback_texts(samples)
         else:
-            texts = factory(samples=samples)
+            # Try to load from dataset, with fallback on failure
+            try:
+                texts = factory(samples=samples, streaming=True)
+            except Exception as e:
+                logger.warning(f"Failed to load dataset '{texts}': {e}, using fallback")
+                texts = _fallback_texts(samples)
 
-    # Handle list/iterable of texts
-    if isinstance(texts, list):
-        text_list = texts
-    elif hasattr(texts, "__iter__"):
-        text_list = list(texts)
-    else:
-        raise ValueError(f"Invalid texts type: {type(texts)}")
+    # Convert to list if it's a generator
+    if hasattr(texts, '__iter__') and not isinstance(texts, (list, str)):
+        try:
+            texts = list(texts)
+        except Exception as e:
+            logger.warning(f"Failed to iterate over texts: {e}, using fallback")
+            texts = _fallback_texts(samples)
 
-    dataset = TextDataset(text_list)
+    # Ensure we have texts as a list
+    if not isinstance(texts, list):
+        texts = list(texts)
+
+    # Filter out empty strings
+    texts = [t for t in texts if t and t.strip()]
+
+    if not texts:
+        raise ValueError("No valid text samples found")
+
+    dataset = TextDataset(texts)
 
     def collate(batch_texts: List[str]) -> CalibrationBatch:
         enc = tokenizer(

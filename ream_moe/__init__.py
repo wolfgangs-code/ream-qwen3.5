@@ -21,9 +21,12 @@ Supported model families:
 Basic usage:
     ```python
     from transformers import AutoModelForCausalLM, AutoTokenizer
-    from ream_moe import observe_model, prune_model, merge_model
+    from ream_moe import observe_model, prune_model, merge_model, setup_logging
     from ream_moe.pruning import PruningConfig
     from ream_moe.merging import MergeConfig
+
+    # Optional: suppress INFO logs
+    setup_logging(level="WARNING")
 
     # Load model
     model = AutoModelForCausalLM.from_pretrained("Qwen/Qwen3-14B-MoE")
@@ -50,11 +53,53 @@ Basic usage:
     ```
 """
 
+import logging
+
 # Version info
 __version__ = "0.1.0"
 
+
+def setup_logging(level: str = "WARNING") -> None:
+    """
+    Configure logging for the ream_moe package.
+
+    By default, suppresses INFO messages to reduce noise. Only WARNING and
+    ERROR messages will be shown.
+
+    Args:
+        level: Logging level - "DEBUG", "INFO", "WARNING", "ERROR", or "CRITICAL"
+
+    Example:
+        >>> from ream_moe import setup_logging
+        >>> setup_logging(level="WARNING")  # Suppress INFO logs
+    """
+    # Convert string to logging level
+    numeric_level = getattr(logging, level.upper(), logging.WARNING)
+
+    # Configure root logger
+    logging.basicConfig(
+        level=numeric_level,
+        format="%(asctime)s - %(name)s - %(levelname)s - %(message)s"
+    )
+
+    # Suppress INFO logs from noisy libraries
+    noisy_loggers = [
+        "",
+        "ream_moe",
+        "datasets",
+        "transformers",
+        "torch",
+        "urllib3",
+        "filelock",
+        "huggingface_hub",
+    ]
+    for logger_name in noisy_loggers:
+        logging.getLogger(logger_name).setLevel(numeric_level)
+
 # Public API
-__all__ = []
+__all__ = [
+    "setup_logging",
+]
 
 # Observer - collect activation statistics
 from ream_moe.observer import (
