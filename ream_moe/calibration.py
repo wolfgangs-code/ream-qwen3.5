@@ -93,6 +93,7 @@ class DatasetRegistry:
 def _load_dataset_with_timeout(
     dataset_path: str,
     split: str = "train",
+    config: str | None = None,
     streaming: bool = True,
     max_samples: int = 1000,
 ) -> Iterable[str]:
@@ -108,14 +109,22 @@ def _load_dataset_with_timeout(
         raise ImportError("datasets library not installed")
 
     try:
-        logger.info(f"Loading {dataset_path} (streaming={streaming})")
+        logger.info(f"Loading {dataset_path} (config={config}, split={split}, streaming={streaming})")
 
         # Load with streaming to avoid downloading entire dataset
-        ds = datasets.load_dataset(
-            dataset_path,
-            split=split,
-            streaming=streaming,
-        )
+        if config:
+            ds = datasets.load_dataset(
+                dataset_path,
+                name=config,
+                split=split,
+                streaming=streaming,
+            )
+        else:
+            ds = datasets.load_dataset(
+                dataset_path,
+                split=split,
+                streaming=streaming,
+            )
 
         def text_generator():
             count = 0
@@ -160,7 +169,8 @@ def _load_dataset_with_timeout(
                 raise ValueError("No valid text samples found in dataset")
 
             logger.info(f"Successfully loaded {count} samples from {dataset_path}")
-            return text_generator()
+
+        return text_generator()
 
     except Exception as e:
         logger.error(f"Failed to load dataset {dataset_path}: {e}")
@@ -190,6 +200,7 @@ def _load_c4(
     try:
         return _load_dataset_with_timeout(
             "allenai/c4",
+            config="en",
             split=split,
             streaming=streaming,
             max_samples=samples,
@@ -216,40 +227,27 @@ def _load_code(
     Returns:
         Iterable of code-related text samples
     """
-    try:
-        # Try multiple code datasets, use whichever works
-        code_datasets = [
-            ("theblackcat102/evol-codealpaca-v1", "train"),
-            ("ise-uiuc/Magicoder-Evol-Instruct-110K", "train"),
-        ]
+    # Try multiple code datasets, use whichever works
+    code_datasets = [
+        ("theblackcat102/evol-codealpaca-v1", None, "train"),
+        ("ise-uiuc/Magicoder-Evol-Instruct-110K", None, "train"),
+    ]
 
-        for dataset_path, split in code_datasets:
-            try:
-                result = _load_dataset_with_timeout(
-                    dataset_path,
-                    split=split,
-                    streaming=streaming,
-                    max_samples=samples,
-                )
-                # Wrap the generator to extract text properly
-                def extract_code_text():
-                    count = 0
-                    for text in result:
-                        # Combine instruction and output if available
-                        yield text
-                        count += 1
-                        if count >= samples:
-                            break
-                return extract_code_text()
-            except Exception:
-                logger.warning(f"Code dataset {dataset_path} failed, trying next...")
-                continue
+    for dataset_path, config, split in code_datasets:
+        try:
+            return _load_dataset_with_timeout(
+                dataset_path,
+                config=config,
+                split=split,
+                streaming=streaming,
+                max_samples=samples,
+            )
+        except Exception:
+            logger.warning(f"Code dataset {dataset_path} failed, trying next...")
+            continue
 
-        raise ValueError("All code datasets failed to load")
-
-    except Exception:
-        logger.warning("Code datasets failed to load, using fallback")
-        return _fallback_code_texts(samples)
+    logger.warning("All code datasets failed to load, using fallback")
+    return _fallback_code_texts(samples)
 
 
 @DatasetRegistry.register("math")
@@ -267,16 +265,26 @@ def _load_math(
     Returns:
         Iterable of math-related text samples
     """
-    try:
-        return _load_dataset_with_timeout(
-            "allenai/tulu-3-sft-personas-math",
-            split="train",
-            streaming=streaming,
-            max_samples=samples,
-        )
-    except Exception:
-        logger.warning("Math dataset failed to load, using fallback")
-        return _fallback_math_texts(samples)
+    # Try multiple math datasets, use whichever works
+    math_datasets = [
+        ("allenai/tulu-3-sft-personas-math", None, "train"),
+    ]
+
+    for dataset_path, config, split in math_datasets:
+        try:
+            return _load_dataset_with_timeout(
+                dataset_path,
+                config=config,
+                split=split,
+                streaming=streaming,
+                max_samples=samples,
+            )
+        except Exception:
+            logger.warning(f"Math dataset {dataset_path} failed, trying next...")
+            continue
+
+    logger.warning("All math datasets failed to load, using fallback")
+    return _fallback_math_texts(samples)
 
 
 @DatasetRegistry.register("writing")
@@ -294,16 +302,26 @@ def _load_writing(
     Returns:
         Iterable of writing-related text samples
     """
-    try:
-        return _load_dataset_with_timeout(
-            "euclaise/WritingPrompts_curated",
-            split="train",
-            streaming=streaming,
-            max_samples=samples,
-        )
-    except Exception:
-        logger.warning("Writing dataset failed to load, using fallback")
-        return _fallback_writing_texts(samples)
+    # Try multiple writing datasets, use whichever works
+    writing_datasets = [
+        ("euclaise/WritingPrompts_curated", None, "train"),
+    ]
+
+    for dataset_path, config, split in writing_datasets:
+        try:
+            return _load_dataset_with_timeout(
+                dataset_path,
+                config=config,
+                split=split,
+                streaming=streaming,
+                max_samples=samples,
+            )
+        except Exception:
+            logger.warning(f"Writing dataset {dataset_path} failed, trying next...")
+            continue
+
+    logger.warning("All writing datasets failed to load, using fallback")
+    return _fallback_writing_texts(samples)
 
 
 @DatasetRegistry.register("combined")
