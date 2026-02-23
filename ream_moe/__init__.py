@@ -53,6 +53,9 @@ Basic usage:
 # Version info
 __version__ = "0.1.0"
 
+# Public API
+__all__ = []
+
 # Observer - collect activation statistics
 from ream_moe.observer import (
     MoEObserver,
