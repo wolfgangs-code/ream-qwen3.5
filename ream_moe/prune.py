@@ -222,6 +222,10 @@ def _update_model_config(
         config_key = num_experts_attr.split(".", 1)[1]
         if hasattr(model.config, config_key):
             setattr(model.config, config_key, num_retained_experts)
+    else:
+        # Try to update config directly using the attribute name
+        if hasattr(model.config, num_experts_attr):
+            setattr(model.config, num_experts_attr, num_retained_experts)
 
     # Handle special cases
     model_class = model.__class__.__name__

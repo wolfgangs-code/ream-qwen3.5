@@ -331,12 +331,23 @@ def compress_model(model, observer_data, args):
     return retained_counts
 
 
-def save_model(model, tokenizer, output_dir, args):
+def save_model(model, tokenizer, output_dir, args, retained_counts=None):
     """Save the compressed model."""
     output_path = Path(output_dir)
     output_path.mkdir(parents=True, exist_ok=True)
 
     logger.info(f"Saving model to: {output_path}")
+
+    # Ensure config is updated before saving
+    if retained_counts:
+        final_expert_count = list(retained_counts.values())[0] if retained_counts else None
+        if final_expert_count:
+            for attr_name in ["num_experts", "num_local_experts", "n_routed_experts", "moe_num_experts"]:
+                if hasattr(model.config, attr_name):
+                    old_val = getattr(model.config, attr_name)
+                    if old_val != final_expert_count:
+                        logger.info(f"Updating model.config.{attr_name}: {old_val} -> {final_expert_count}")
+                        setattr(model.config, attr_name, final_expert_count)
 
     # Save model
     model.save_pretrained(output_path)
@@ -393,7 +404,7 @@ def main():
     retained_counts = compress_model(model, observer_data, args)
 
     # Save compressed model
-    save_model(model, tokenizer, args.output, args)
+    save_model(model, tokenizer, args.output, args, retained_counts)
 
     # Print summary
     logger.info("=" * 70)

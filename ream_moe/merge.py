@@ -543,6 +543,17 @@ def merge_model(
             logger.error(f"Layer {layer_idx}: Failed to merge - {e}")
             raise
 
+    # Update model config with new expert count
+    if retained_counts:
+        # Get the expert count from first layer (all should be same after compression)
+        final_expert_count = list(retained_counts.values())[0]
+
+        # Try to update various possible config attributes
+        for attr_name in ["num_experts", "num_local_experts", "n_routed_experts", "moe_num_experts"]:
+            if hasattr(model.config, attr_name):
+                logger.info(f"Updating model.config.{attr_name} = {final_expert_count}")
+                setattr(model.config, attr_name, final_expert_count)
+
     # Log summary
     if retained_counts:
         original_avg = sum(len(s.get("router_logits", [])[0]) if "router_logits" in s else 0 for s in observer_data.values()) / len(observer_data)
