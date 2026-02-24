@@ -39,6 +39,7 @@ class MergeConfig:
     use_gated_similarity: bool = True  # Use router+hidden similarity for grouping
     saliency_metric: str = "saliency_scores"  # Metric to use for centroid selection
     use_cpu_for_weights: bool = False  # Process expert weights on CPU to save GPU memory
+    skip_permutation: bool = False  # Skip Hungarian algorithm for faster merging (simple averaging)
 
 
 def merge_layer(
@@ -96,7 +97,8 @@ def merge_layer(
     # Step 4: Merge each group
     merged_weights = _merge_groups(
         moe_block, groups, saliency, attrs, observer_stats,
-        use_cpu_for_weights=config.use_cpu_for_weights
+        use_cpu_for_weights=config.use_cpu_for_weights,
+        skip_permutation=config.skip_permutation
     )
 
     # Step 5: Update model with merged weights
@@ -250,6 +252,7 @@ def _merge_groups(
     attrs: Dict[str, Any],
     observer_stats: Dict[str, torch.Tensor],
     use_cpu_for_weights: bool = False,
+    skip_permutation: bool = False,
 ) -> torch.Tensor:
     """
     Merge each group of experts using permutation-aware averaging.
@@ -261,6 +264,7 @@ def _merge_groups(
         attrs: Model attributes
         observer_stats: Observer statistics
         use_cpu_for_weights: If True, process weights on CPU to save GPU memory
+        skip_permutation: If True, use simple averaging instead of Hungarian (faster)
 
     Returns:
         Merged expert weights tensor
@@ -279,40 +283,47 @@ def _merge_groups(
         group_tensor = all_weights[group]  # [G, ...]
         G = len(group)
 
-        # Reshape: [G, neurons, rest]
-        group_flat = group_tensor.view(G, group_tensor.shape[1], -1)
-
-        # Use first expert as reference for permutation
-        ref = group_flat[0]  # [neurons, rest]
-        weights_accum = torch.zeros_like(ref)
-
         # Get normalized saliency weights
         s_vals = saliency[torch.tensor(group, device=device)]
         s_norm = s_vals / (s_vals.sum() + 1e-8)
 
-        # Start with reference
-        weights_accum += s_norm[0] * ref
+        if skip_permutation:
+            # Fast path: simple weighted average (no permutation alignment)
+            # Much faster but may lose some quality
+            merged = torch.sum(group_tensor * s_norm.view(-1, 1, 1), dim=0)
+            merged_weights.append(merged)
+        else:
+            # Slow path: permutation-aware averaging with Hungarian algorithm
+            # Reshape: [G, neurons, rest]
+            group_flat = group_tensor.view(G, group_tensor.shape[1], -1)
 
-        # Merge other experts with permutation alignment
-        for g_idx in range(1, G):
-            candidate = group_flat[g_idx]  # [neurons, rest]
+            # Use first expert as reference for permutation
+            ref = group_flat[0]  # [neurons, rest]
+            weights_accum = torch.zeros_like(ref)
 
-            # Hungarian algorithm for optimal permutation
-            # Convert to float32 for cdist if on CPU (BFloat16 not supported on CPU)
-            if (not device.type.startswith('cuda')) and (ref.dtype == torch.bfloat16 or candidate.dtype == torch.bfloat16):
-                cost = torch.cdist(ref.float(), candidate.float())  # [neurons, neurons]
-            else:
-                cost = torch.cdist(ref, candidate)  # [neurons, neurons]
-            row_ind, col_ind = linear_sum_assignment(cost.detach().cpu().numpy())
-            perm = torch.as_tensor(col_ind, device=device, dtype=torch.long)
+            # Start with reference
+            weights_accum += s_norm[0] * ref
 
-            # Apply permutation and add weighted sum
-            permuted = candidate[perm]
-            weights_accum += s_norm[g_idx] * permuted
+            # Merge other experts with permutation alignment
+            for g_idx in range(1, G):
+                candidate = group_flat[g_idx]  # [neurons, rest]
 
-        # Reshape back to original shape
-        merged = weights_accum.view_as(group_tensor[0])
-        merged_weights.append(merged)
+                # Hungarian algorithm for optimal permutation
+                # Convert to float32 for cdist if on CPU (BFloat16 not supported on CPU)
+                if (not device.type.startswith('cuda')) and (ref.dtype == torch.bfloat16 or candidate.dtype == torch.bfloat16):
+                    cost = torch.cdist(ref.float(), candidate.float())  # [neurons, neurons]
+                else:
+                    cost = torch.cdist(ref, candidate)  # [neurons, neurons]
+                row_ind, col_ind = linear_sum_assignment(cost.detach().cpu().numpy())
+                perm = torch.as_tensor(col_ind, device=device, dtype=torch.long)
+
+                # Apply permutation and add weighted sum
+                permuted = candidate[perm]
+                weights_accum += s_norm[g_idx] * permuted
+
+            # Reshape back to original shape
+            merged = weights_accum.view_as(group_tensor[0])
+            merged_weights.append(merged)
 
     return torch.stack(merged_weights, dim=0)
 

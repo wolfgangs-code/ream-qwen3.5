@@ -186,6 +186,11 @@ Examples:
         action="store_true",
         help="Use scaled_dot_product_attention for memory-efficient attention computation during calibration",
     )
+    parser.add_argument(
+        "--fast-merge",
+        action="store_true",
+        help="Use simple averaging instead of Hungarian algorithm for merging (10-100x faster, minor quality loss)",
+    )
 
     # Verification
     parser.add_argument(
@@ -364,6 +369,7 @@ def compress_model(model, observer_data, args):
         config = MergeConfig(
             target_ratio=target_ratio,
             use_cpu_for_weights=args.cpu_merge,
+            skip_permutation=args.fast_merge,
         )
         retained_counts = merge_model(model, observer_data, config)
 
