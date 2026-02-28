@@ -122,6 +122,7 @@ retained_counts = merge_model(model, observer_data, config)
 | Model Family | Model Class | Fused Experts | Notes |
 |-------------|-------------|---------------|-------|
 | Qwen3 MoE | `Qwen3MoeForCausalLM` | No | Standard Qwen MoE |
+| Qwen3.5 MoE | `Qwen3_5MoeForConditionalGeneration` | No | Qwen3.5 MoE model |
 | Qwen3 NonUniform | `NonUniformQwen3MoeForCausalLM` | No | Non-uniform expert allocation |
 | Llama4 | `Llama4ForCausalLM` | Yes | Fused gate_up_proj |
 | Mixtral | `MixtralForCausalLM` | No | Uses w1/w2/w3 naming |

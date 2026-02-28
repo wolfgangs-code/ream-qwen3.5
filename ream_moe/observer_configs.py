@@ -54,6 +54,13 @@ OBSERVER_CONFIG_REGISTRY: Dict[str, type[ObserverHookConfig]] = {
             "module_class_name_to_hook_regex": "Qwen3MoeSparseMoeBlock",
         },
     ),
+    "Qwen3_5MoeForConditionalGeneration": type(
+        "Qwen3_5MoEObserverConfig",
+        (ObserverHookConfig,),
+        {
+            "module_class_name_to_hook_regex": "Qwen3_5MoeSparseMoeBlock",
+        },
+    ),
     "NonUniformQwen3MoeForCausalLM": type(
         "NonUniformQwen3MoEObserverConfig",
         (ObserverHookConfig,),

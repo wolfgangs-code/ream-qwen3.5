@@ -32,6 +32,17 @@ MODEL_ATTRS: Dict[str, Dict[str, Any]] = {
         "num_experts": "num_experts",
         "num_experts_per_tok": "num_experts_per_tok",
     },
+    "Qwen3_5MoeForConditionalGeneration": {
+        "moe_block": "mlp",
+        "gate_proj": "gate_up_proj",
+        "up_proj": "gate_up_proj",
+        "down_proj": "down_proj",
+        "experts": "experts",
+        "fused": True,
+        "router": "gate",
+        "num_experts": "num_experts",
+        "num_experts_per_tok": "num_experts_per_tok",
+    },
     "Qwen3-Coder-30B-A3B-Instruct": {
         "moe_block": "mlp",
         "gate_proj": "gate_up_proj",
