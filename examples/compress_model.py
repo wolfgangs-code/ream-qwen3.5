@@ -217,6 +217,12 @@ Examples:
         help="Random seed for reproducibility",
     )
 
+    parser.add_argument(
+        "--disable-grouped-mm",
+        action="store_true",
+        help="Disable PyTorch native grouped_mm (solves memory alignment errors during CPU offloading)",
+    )
+
     return parser.parse_args()
 
 
@@ -419,6 +425,15 @@ def save_model(model, tokenizer, output_dir, args, retained_counts=None):
 def main():
     """Main entry point."""
     args = parse_args()
+
+    # Apply monkey patches
+    if getattr(args, "disable_grouped_mm", False):
+        logger.info("Disabling native grouped_mm (monkey-patching transformers.integrations.moe)")
+        try:
+            import transformers.integrations.moe
+            transformers.integrations.moe._can_use_grouped_mm = lambda *args, **kwargs: False
+        except ImportError:
+            logger.warning("Could not monkey-patch grouped_mm: transformers.integrations.moe not found")
 
     # Set random seed
     torch.manual_seed(args.seed)
